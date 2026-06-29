@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="es">
-    
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>WebPFD - Soporte Táctil y Móvil</title>
+    <title>WebPFD - Control Total de Corrientes y Edición</title>
     <style>
         body {
             margin: 0;
@@ -49,7 +48,7 @@
             font-weight: 500;
             font-size: 0.8rem;
             transition: all 0.15s ease;
-            touch-action: manipulation; /* Optimiza clicks en móviles */
+            touch-action: manipulation;
         }
         button:hover {
             background-color: #f1f5f9;
@@ -93,7 +92,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            touch-action: none; /* Crucial: Evita que el celular haga scroll al arrastrar objetos */
+            touch-action: none;
         }
         .instruction {
             font-size: 0.75rem;
@@ -124,7 +123,7 @@
         <input type="file" id="fileInput" accept=".json" onchange="importFromJSON(event)">
 
         <div class="instruction">
-            <b>Móvil:</b> Mantén presionado o doble toque rápido para editar valores.
+            ¡Arrastra desde la etiqueta blanca para mover la corriente completa!
         </div>
     </div>
 
@@ -142,9 +141,9 @@
         
         let selectedElement = null; 
         let activeSelection = null; 
-        let dragType = null; 
+        let dragType = null; // 'start', 'end', 'unit', 'stream_body'
         let dragOffset = { x: 0, y: 0 };
-        let lastTap = 0; // Para emular el doble click en pantallas táctiles
+        let streamDragOffset = { sx: 0, sy: 0, ex: 0, ey: 0 };
 
         function resizeCanvas() {
             canvas.width = workspace.offsetWidth;
@@ -180,7 +179,7 @@
 
         function addStream() {
             const id = streams.length > 0 ? Math.max(...streams.map(s => s.id)) + 1 : 1;
-            const stream = new Stream(id, 40, 80 + (id%5)*35, 160, 80 + (id%5)*35);
+            const stream = new Stream(id, 50, 100 + (id%5)*40, 180, 100 + (id%5)*40);
             streams.push(stream);
             activeSelection = stream;
             calculateMassBalance();
@@ -250,7 +249,6 @@
                     activeSelection = null;
                     calculateMassBalance();
                     draw();
-                    alert("Simulación cargada.");
                 } catch (err) { alert("Error al leer el archivo JSON."); }
             };
             reader.readAsText(file);
@@ -314,6 +312,7 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // DIBUJAR UNIDADES
             units.forEach(u => {
                 const isSelected = (u === activeSelection);
                 ctx.beginPath();
@@ -342,6 +341,7 @@
                 ctx.fillText(u.name, u.x, u.y - u.radius - 8);
             });
 
+            // DIBUJAR CORRIENTES
             streams.forEach(s => {
                 const isSelected = (s === activeSelection);
                 const midX = s.sx + (s.ex - s.sx) / 2;
@@ -363,13 +363,13 @@
                 ctx.fillStyle = isSelected ? '#3b82f6' : (s.isCalculated ? '#0f172a' : '#64748b');
                 ctx.fill();
 
-                // Nodos de control un poco más grandes para facilitar el toque táctil (Radio de 6 en vez de 4)
                 ctx.beginPath();
                 ctx.arc(s.sx, s.sy, 6, 0, 2*Math.PI);
                 ctx.arc(s.ex, s.ey, 6, 0, 2*Math.PI);
                 ctx.fillStyle = '#ef4444';
                 ctx.fill();
 
+                // ETIQUETA INFORMATIVA FLOTANTE (ZONA DE ARRASTRE Y EDICIÓN)
                 const labelX = midX;
                 const labelY = s.sy + (s.ey - s.sy) / 2 - 18;
                 
@@ -401,30 +401,101 @@
             });
         }
 
-        // FUNCIÓN CENTRAL DE DETECCIÓN COORDENADAS (SOPORTA MOUSE Y TOQUE)
+        // LÓGICA DE DETECCIÓN Y HERRAMIENTAS DE EDICIÓN FLOTANTES
+        function openEditDialog(element) {
+            setTimeout(() => {
+                if (element instanceof ProcessUnit) {
+                    if (element.type === 'splitter') {
+                        const outputs = streams.filter(s => s.connectedInputUnit === element);
+                        if (outputs.length === 0) { alert("Conecta corrientes de salida al Divisor primero."); return; }
+                        for (let i = 0; i < outputs.length; i++) {
+                            const s = outputs[i];
+                            const currentFrac = element.fractions[s.id] || (1 / outputs.length);
+                            const val = prompt(`Fracción para "${s.name}" (0 a 1):`, currentFrac);
+                            if (val !== null && !isNaN(val)) element.fractions[s.id] = parseFloat(val);
+                        }
+                    } else {
+                        const newName = prompt("Nuevo nombre del Mezclador:", element.name);
+                        if (newName) element.name = newName;
+                    }
+                } else if (element instanceof Stream) {
+                    const newName = prompt("Nuevo nombre de la corriente:", element.name);
+                    if (newName) element.name = newName;
+                    
+                    if (!element.isCalculated) {
+                        const newFlow = prompt("Flujo másico (kg/h):", element.flow);
+                        if (newFlow && !isNaN(newFlow)) element.flow = parseFloat(newFlow);
+                    } else {
+                        alert("El flujo se calcula automáticamente mediante el balance del bloque.");
+                    }
+                }
+                calculateMassBalance();
+                draw();
+            }, 50);
+        }
+
         function handleStart(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
             const mouseX = clientX - rect.left;
             const mouseY = clientY - rect.top;
-            activeSelection = null; 
+            
+            // Si el usuario da un click simple, guardamos temporalmente el elemento por si desea editarlo
+            let clickedOnLabel = false;
 
-            // Rango de tolerancia táctil ligeramente mayor (20px en lugar de 12px) para dedos
+            // 1. Detectar extremos de la corriente (Puntos rojos)
             for (let s of streams) {
-                if (Math.hypot(s.sx - mouseX, s.sy - mouseY) < 20) { selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; }
-                if (Math.hypot(s.ex - mouseX, s.ey - mouseY) < 20) { selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; }
-            }
-            for (let s of streams) {
-                const midX = s.sx + (s.ex - s.sx) / 2;
-                const midY = s.sy + (s.ey - s.sy) / 2;
-                if (Math.hypot(midX - mouseX, midY - mouseY) < 35) { activeSelection = s; draw(); return; }
-            }
-            for (let u of units) {
-                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 5) {
-                    selectedElement = u; dragType = 'unit'; activeSelection = u;
-                    dragOffset.x = mouseX - u.x; dragOffset.y = mouseY - u.y;
-                    draw(); return;
+                if (Math.hypot(s.sx - mouseX, s.sy - mouseY) < 22) { 
+                    selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; 
+                }
+                if (Math.hypot(s.ex - mouseX, s.ey - mouseY) < 22) { 
+                    selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; 
                 }
             }
+
+            // 2. Detectar click en la etiqueta central (Para arrastrar la corriente completa o editar)
+            for (let s of streams) {
+                const midX = s.sx + (s.ex - s.sx) / 2;
+                const midY = s.sy + (s.ey - s.sy) / 2 - 18;
+                // Área rectangular aproximada del cuadro de texto blanco
+                if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) {
+                    selectedElement = s;
+                    dragType = 'stream_body';
+                    activeSelection = s;
+                    // Almacenamos el delta de coordenadas relativas de ambos extremos
+                    streamDragOffset.sx = mouseX - s.sx;
+                    streamDragOffset.sy = mouseY - s.sy;
+                    streamDragOffset.ex = mouseX - s.ex;
+                    streamDragOffset.ey = mouseY - s.ey;
+                    
+                    draw();
+                    
+                    // Si solo hace un toque estático en el cuadro, se abre la edición
+                    clickedOnLabel = true;
+                    setTimeout(() => {
+                        if (selectedElement === null && dragType === null) openEditDialog(s);
+                    }, 250);
+                    return;
+                }
+            }
+
+            // 3. Detectar click en Unidades (Para mover o editar)
+            for (let u of units) {
+                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 8) {
+                    selectedElement = u; 
+                    dragType = 'unit'; 
+                    activeSelection = u;
+                    dragOffset.x = mouseX - u.x; 
+                    dragOffset.y = mouseY - u.y;
+                    draw(); 
+                    
+                    setTimeout(() => {
+                        if (selectedElement === null && dragType === null) openEditDialog(u);
+                    }, 250);
+                    return;
+                }
+            }
+            
+            activeSelection = null;
             draw();
         }
 
@@ -438,6 +509,15 @@
                 selectedElement.sx = mouseX; selectedElement.sy = mouseY; selectedElement.connectedInputUnit = null; 
             } else if (dragType === 'end') {
                 selectedElement.ex = mouseX; selectedElement.ey = mouseY; selectedElement.connectedOutputUnit = null;
+            } else if (dragType === 'stream_body') {
+                // Desconectar extremos si la movemos entera de su sitio original
+                selectedElement.connectedInputUnit = null;
+                selectedElement.connectedOutputUnit = null;
+                // Desplazar ambos puntos al unísono
+                selectedElement.sx = mouseX - streamDragOffset.sx;
+                selectedElement.sy = mouseY - streamDragOffset.sy;
+                selectedElement.ex = mouseX - streamDragOffset.ex;
+                selectedElement.ey = mouseY - streamDragOffset.ey;
             } else if (dragType === 'unit') {
                 selectedElement.x = mouseX - dragOffset.x; selectedElement.y = mouseY - dragOffset.y;
                 streams.forEach(s => {
@@ -451,6 +531,7 @@
 
         function handleEnd() {
             if (!selectedElement) return;
+            // Realizar anclaje automático por proximidad si soltamos extremos libres cerca de un equipo
             if (dragType === 'start' || dragType === 'end') {
                 const px = dragType === 'start' ? selectedElement.sx : selectedElement.ex;
                 const py = dragType === 'start' ? selectedElement.sy : selectedElement.ey;
@@ -461,70 +542,23 @@
                     }
                 });
             }
-            selectedElement = null; dragType = null;
+            selectedElement = null; 
+            dragType = null;
             calculateMassBalance();
             draw();
         }
 
-        function handleDblClick(clientX, clientY) {
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-
-            for (let u of units) {
-                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 10) {
-                    if (u.type === 'splitter') {
-                        const outputs = streams.filter(s => s.connectedInputUnit === u);
-                        if (outputs.length === 0) { alert("Conecta corrientes de salida al Divisor primero."); return; }
-                        for (let i = 0; i < outputs.length; i++) {
-                            const s = outputs[i];
-                            const currentFrac = u.fractions[s.id] || (1 / outputs.length);
-                            const val = prompt(`Fracción para "${s.name}" (0 a 1):`, currentFrac);
-                            if (val !== null && !isNaN(val)) u.fractions[s.id] = parseFloat(val);
-                        }
-                    } else {
-                        const newName = prompt("Nombre del Mezclador:", u.name); if (newName) u.name = newName;
-                    }
-                    calculateMassBalance(); draw(); return;
-                }
-            }
-            for (let s of streams) {
-                if (Math.hypot(s.sx - mouseX, s.sy - mouseY) < 30 || Math.hypot(s.ex - mouseX, s.ey - mouseY) < 30) {
-                    if (s.isCalculated) { alert("Flujo determinado automáticamente por balance de equipo."); return; }
-                    const newName = prompt("Nombre de la corriente:", s.name);
-                    const newFlow = prompt("Flujo másico (kg/h):", s.flow);
-                    if (newName) s.name = newName; if (newFlow && !isNaN(newFlow)) s.flow = parseFloat(newFlow);
-                    calculateMassBalance(); draw(); return;
-                }
-            }
-        }
-
-        // --- LISTENERS TRADICIONALES (MOUSE) ---
+        // CONTROLADORES DE EVENTO HÍBRIDOS (RATÓN Y MÓVILES)
         canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
         canvas.addEventListener('mouseup', handleEnd);
-        canvas.addEventListener('dblclick', (e) => handleDblClick(e.clientX, e.clientY));
 
-        // --- LISTENERS NUEVOS (PANTALLAS TÁCTILES) ---
         canvas.addEventListener('touchstart', (e) => {
-            const touch = e.touches[0];
-            const now = Array.prototype.slice.call(arguments)[1] || Date.now();
-            const timesince = now - lastTap;
-            
-            handleStart(touch.clientX, touch.clientY);
-            
-            // Simular Doble Click en móvil mediante toques rápidos (< 300ms)
-            if ((timesince < 300) && (timesince > 0)) {
-                handleDblClick(touch.clientX, touch.clientY);
-            }
-            lastTap = now;
+            if (e.touches.length > 0) handleStart(e.touches[0].clientX, e.touches[0].clientY);
         }, { passive: true });
 
         canvas.addEventListener('touchmove', (e) => {
-            if(e.touches.length > 0) {
-                const touch = e.touches[0];
-                handleMove(touch.clientX, touch.clientY);
-            }
+            if (e.touches.length > 0) handleMove(e.touches[0].clientX, e.touches[0].clientY);
         }, { passive: true });
 
         canvas.addEventListener('touchend', handleEnd);
