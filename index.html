@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>WebPFD - Control Total de Corrientes y Edición</title>
+    <title>WebPFD - Menú Contextual Profesional</title>
     <style>
         body {
             margin: 0;
@@ -94,6 +94,29 @@
             height: 100%;
             touch-action: none;
         }
+        /* MENÚ CONTEXTUAL PERSONALIZADO */
+        #contextMenu {
+            display: none;
+            position: absolute;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 6px 0;
+            min-width: 150px;
+            z-index: 1000;
+        }
+        .menu-item {
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            color: #334155;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .menu-item:hover {
+            background-color: #f1f5f9;
+            color: #0f172a;
+        }
         .instruction {
             font-size: 0.75rem;
             color: #64748b;
@@ -123,7 +146,7 @@
         <input type="file" id="fileInput" accept=".json" onchange="importFromJSON(event)">
 
         <div class="instruction">
-            ¡Arrastra desde la etiqueta blanca para mover la corriente completa!
+            <b>PC:</b> Clic derecho para editar. <b>Móvil:</b> Mantén presionado un objeto.
         </div>
     </div>
 
@@ -131,19 +154,24 @@
         <canvas id="pfdCanvas"></canvas>
     </div>
 
+    <div id="contextMenu"></div>
+
     <script>
         const canvas = document.getElementById('pfdCanvas');
         const ctx = canvas.getContext('2d');
         const workspace = document.getElementById('workspace');
+        const menu = document.getElementById('contextMenu');
 
         let streams = [];
         let units = []; 
         
         let selectedElement = null; 
         let activeSelection = null; 
-        let dragType = null; // 'start', 'end', 'unit', 'stream_body'
+        let dragType = null; 
         let dragOffset = { x: 0, y: 0 };
         let streamDragOffset = { sx: 0, sy: 0, ex: 0, ey: 0 };
+        
+        let touchTimer = null; // Para detectar pulsación larga en móviles
 
         function resizeCanvas() {
             canvas.width = workspace.offsetWidth;
@@ -369,7 +397,6 @@
                 ctx.fillStyle = '#ef4444';
                 ctx.fill();
 
-                // ETIQUETA INFORMATIVA FLOTANTE (ZONA DE ARRASTRE Y EDICIÓN)
                 const labelX = midX;
                 const labelY = s.sy + (s.ey - s.sy) / 2 - 18;
                 
@@ -401,105 +428,153 @@
             });
         }
 
-        // LÓGICA DE DETECCIÓN Y HERRAMIENTAS DE EDICIÓN FLOTANTES
-        function openEditDialog(element) {
-            setTimeout(() => {
-                if (element instanceof ProcessUnit) {
-                    if (element.type === 'splitter') {
-                        const outputs = streams.filter(s => s.connectedInputUnit === element);
-                        if (outputs.length === 0) { alert("Conecta corrientes de salida al Divisor primero."); return; }
-                        for (let i = 0; i < outputs.length; i++) {
-                            const s = outputs[i];
-                            const currentFrac = element.fractions[s.id] || (1 / outputs.length);
-                            const val = prompt(`Fracción para "${s.name}" (0 a 1):`, currentFrac);
-                            if (val !== null && !isNaN(val)) element.fractions[s.id] = parseFloat(val);
-                        }
-                    } else {
-                        const newName = prompt("Nuevo nombre del Mezclador:", element.name);
-                        if (newName) element.name = newName;
-                    }
-                } else if (element instanceof Stream) {
-                    const newName = prompt("Nuevo nombre de la corriente:", element.name);
-                    if (newName) element.name = newName;
-                    
-                    if (!element.isCalculated) {
-                        const newFlow = prompt("Flujo másico (kg/h):", element.flow);
-                        if (newFlow && !isNaN(newFlow)) element.flow = parseFloat(newFlow);
-                    } else {
-                        alert("El flujo se calcula automáticamente mediante el balance del bloque.");
-                    }
-                }
-                calculateMassBalance();
-                draw();
-            }, 50);
-        }
-
-        function handleStart(clientX, clientY) {
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
+        // CONTROLADOR DEL MENÚ CONTEXTUAL DINÁMICO
+        function showContextMenu(x, y, target) {
+            menu.innerHTML = ''; // Limpiar opciones previas
             
-            // Si el usuario da un click simple, guardamos temporalmente el elemento por si desea editarlo
-            let clickedOnLabel = false;
+            if (target instanceof ProcessUnit) {
+                // Opción común: Renombrar
+                const optRename = document.createElement('div');
+                optRename.className = 'menu-item';
+                optRename.innerText = '✏️ Renombrar';
+                optRename.onclick = () => {
+                    const n = prompt("Nuevo nombre de la unidad:", target.name);
+                    if (n) target.name = n;
+                    closeMenu();
+                };
+                menu.appendChild(optRename);
 
-            // 1. Detectar extremos de la corriente (Puntos rojos)
-            for (let s of streams) {
-                if (Math.hypot(s.sx - mouseX, s.sy - mouseY) < 22) { 
-                    selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; 
+                // Opción exclusiva: Definir fracciones (Solo para divisores/splitter)
+                if (target.type === 'splitter') {
+                    const optFrac = document.createElement('div');
+                    optFrac.className = 'menu-item';
+                    optFrac.innerText = '📊 Definir fracciones';
+                    optFrac.onclick = () => {
+                        const outputs = streams.filter(s => s.connectedInputUnit === target);
+                        if (outputs.length === 0) { alert("Conecta corrientes de salida al Divisor primero."); closeMenu(); return; }
+                        for (let s of outputs) {
+                            const current = target.fractions[s.id] || (1 / outputs.length);
+                            const val = prompt(`Fracción para "${s.name}" (0 a 1):`, current);
+                            if (val !== null && !isNaN(val)) target.fractions[s.id] = parseFloat(val);
+                        }
+                        closeMenu();
+                    };
+                    menu.appendChild(optFrac);
                 }
-                if (Math.hypot(s.ex - mouseX, s.ey - mouseY) < 22) { 
-                    selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; 
+            } else if (target instanceof Stream) {
+                const optRename = document.createElement('div');
+                optRename.className = 'menu-item';
+                optRename.innerText = '✏️ Renombrar';
+                optRename.onclick = () => {
+                    const n = prompt("Nuevo nombre de la corriente:", target.name);
+                    if (n) target.name = n;
+                    closeMenu();
+                };
+                menu.appendChild(optRename);
+
+                if (!target.isCalculated) {
+                    const optFlow = document.createElement('div');
+                    optFlow.className = 'menu-item';
+                    optFlow.innerText = '⚖️ Editar Flujo';
+                    optFlow.onclick = () => {
+                        const f = prompt("Flujo másico (kg/h):", target.flow);
+                        if (f && !isNaN(f)) target.flow = parseFloat(f);
+                        closeMenu();
+                    };
+                    menu.appendChild(optFlow);
                 }
             }
 
-            // 2. Detectar click en la etiqueta central (Para arrastrar la corriente completa o editar)
+            // Mostrar el menú en las coordenadas indicadas
+            menu.style.left = `${x}px`;
+            menu.style.top = `${y}px`;
+            menu.style.display = 'block';
+        }
+
+        function closeMenu() {
+            menu.style.display = 'none';
+            calculateMassBalance();
+            draw();
+        }
+
+        // Cierra el menú al hacer click afuera
+        window.addEventListener('click', () => { if(menu.style.display === 'block') closeMenu(); });
+
+        // CAPTURA DE EVENTO CLIC DERECHO (PC)
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // Buscar si se hizo click sobre un equipo o corriente
+            for (let u of units) {
+                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 10) {
+                    showContextMenu(e.clientX, e.clientY, u); return;
+                }
+            }
             for (let s of streams) {
                 const midX = s.sx + (s.ex - s.sx) / 2;
                 const midY = s.sy + (s.ey - s.sy) / 2 - 18;
-                // Área rectangular aproximada del cuadro de texto blanco
                 if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) {
-                    selectedElement = s;
-                    dragType = 'stream_body';
-                    activeSelection = s;
-                    // Almacenamos el delta de coordenadas relativas de ambos extremos
-                    streamDragOffset.sx = mouseX - s.sx;
-                    streamDragOffset.sy = mouseY - s.sy;
-                    streamDragOffset.ex = mouseX - s.ex;
-                    streamDragOffset.ey = mouseY - s.ey;
-                    
-                    draw();
-                    
-                    // Si solo hace un toque estático en el cuadro, se abre la edición
-                    clickedOnLabel = true;
-                    setTimeout(() => {
-                        if (selectedElement === null && dragType === null) openEditDialog(s);
-                    }, 250);
-                    return;
+                    showContextMenu(e.clientX, e.clientY, s); return;
+                }
+            }
+        });
+
+        // DETECCIONES GENERALES DE INTERACCIÓN (MOUSE/TOUCH)
+        function handleStart(clientX, clientY, isTouch) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+
+            // En móviles, si dejamos presionado por 600ms, emulamos un clic derecho
+            if (isTouch) {
+                clearTimeout(touchTimer);
+                touchTimer = setTimeout(() => {
+                    for (let u of units) {
+                        if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 15) { showContextMenu(clientX, clientY, u); return; }
+                    }
+                    for (let s of streams) {
+                        const midX = s.sx + (s.ex - s.sx) / 2;
+                        const midY = s.sy + (s.ey - s.sy) / 2 - 18;
+                        if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) { showContextMenu(clientX, clientY, s); return; }
+                    }
+                }, 600);
+            }
+
+            // 1. Extremos de corrientes
+            for (let s of streams) {
+                if (Math.hypot(s.sx - mouseX, s.sy - mouseY) < 22) { selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; }
+                if (Math.hypot(s.ex - mouseX, s.ey - mouseY) < 22) { selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; }
+            }
+
+            // 2. Mover corriente completa por su tarjeta de texto
+            for (let s of streams) {
+                const midX = s.sx + (s.ex - s.sx) / 2;
+                const midY = s.sy + (s.ey - s.sy) / 2 - 18;
+                if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) {
+                    selectedElement = s; dragType = 'stream_body'; activeSelection = s;
+                    streamDragOffset.sx = mouseX - s.sx; streamDragOffset.sy = mouseY - s.sy;
+                    streamDragOffset.ex = mouseX - s.ex; streamDragOffset.ey = mouseY - s.ey;
+                    draw(); return;
                 }
             }
 
-            // 3. Detectar click en Unidades (Para mover o editar)
+            // 3. Mover unidades
             for (let u of units) {
-                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 8) {
-                    selectedElement = u; 
-                    dragType = 'unit'; 
-                    activeSelection = u;
-                    dragOffset.x = mouseX - u.x; 
-                    dragOffset.y = mouseY - u.y;
-                    draw(); 
-                    
-                    setTimeout(() => {
-                        if (selectedElement === null && dragType === null) openEditDialog(u);
-                    }, 250);
-                    return;
+                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 10) {
+                    selectedElement = u; dragType = 'unit'; activeSelection = u;
+                    dragOffset.x = mouseX - u.x; dragOffset.y = mouseY - u.y;
+                    draw(); return;
                 }
             }
-            
             activeSelection = null;
             draw();
         }
 
         function handleMove(clientX, clientY) {
+            clearTimeout(touchTimer); // Si se mueve, cancela la pulsación larga
             if (!selectedElement) return;
             const rect = canvas.getBoundingClientRect();
             const mouseX = clientX - rect.left;
@@ -510,14 +585,9 @@
             } else if (dragType === 'end') {
                 selectedElement.ex = mouseX; selectedElement.ey = mouseY; selectedElement.connectedOutputUnit = null;
             } else if (dragType === 'stream_body') {
-                // Desconectar extremos si la movemos entera de su sitio original
-                selectedElement.connectedInputUnit = null;
-                selectedElement.connectedOutputUnit = null;
-                // Desplazar ambos puntos al unísono
-                selectedElement.sx = mouseX - streamDragOffset.sx;
-                selectedElement.sy = mouseY - streamDragOffset.sy;
-                selectedElement.ex = mouseX - streamDragOffset.ex;
-                selectedElement.ey = mouseY - streamDragOffset.ey;
+                selectedElement.connectedInputUnit = null; selectedElement.connectedOutputUnit = null;
+                selectedElement.sx = mouseX - streamDragOffset.sx; selectedElement.sy = mouseY - streamDragOffset.sy;
+                selectedElement.ex = mouseX - streamDragOffset.ex; selectedElement.ey = mouseY - streamDragOffset.ey;
             } else if (dragType === 'unit') {
                 selectedElement.x = mouseX - dragOffset.x; selectedElement.y = mouseY - dragOffset.y;
                 streams.forEach(s => {
@@ -530,8 +600,8 @@
         }
 
         function handleEnd() {
+            clearTimeout(touchTimer);
             if (!selectedElement) return;
-            // Realizar anclaje automático por proximidad si soltamos extremos libres cerca de un equipo
             if (dragType === 'start' || dragType === 'end') {
                 const px = dragType === 'start' ? selectedElement.sx : selectedElement.ex;
                 const py = dragType === 'start' ? selectedElement.sy : selectedElement.ey;
@@ -542,25 +612,18 @@
                     }
                 });
             }
-            selectedElement = null; 
-            dragType = null;
+            selectedElement = null; dragType = null;
             calculateMassBalance();
             draw();
         }
 
-        // CONTROLADORES DE EVENTO HÍBRIDOS (RATÓN Y MÓVILES)
-        canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
+        // EVENT LISTENERS FUSIONADOS MOUSE/TOUCH
+        canvas.addEventListener('mousedown', (e) => { if(e.button === 0) handleStart(e.clientX, e.clientY, false); });
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
         canvas.addEventListener('mouseup', handleEnd);
 
-        canvas.addEventListener('touchstart', (e) => {
-            if (e.touches.length > 0) handleStart(e.touches[0].clientX, e.touches[0].clientY);
-        }, { passive: true });
-
-        canvas.addEventListener('touchmove', (e) => {
-            if (e.touches.length > 0) handleMove(e.touches[0].clientX, e.touches[0].clientY);
-        }, { passive: true });
-
+        canvas.addEventListener('touchstart', (e) => { if(e.touches.length > 0) handleStart(e.touches[0].clientX, e.touches[0].clientY, true); }, { passive: true });
+        canvas.addEventListener('touchmove', (e) => { if(e.touches.length > 0) handleMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
         canvas.addEventListener('touchend', handleEnd);
 
         setTimeout(resizeCanvas, 50);
