@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>WebPFD - Menú Contextual Profesional</title>
+    <title>WebPFD - Unidad de Proceso con Rendimientos</title>
     <style>
         body {
             margin: 0;
@@ -62,13 +62,13 @@
         button.action-btn:hover {
             background-color: #1d4ed8;
         }
-        button.io-btn {
-            background-color: #0f172a;
+        button.process-btn {
+            background-color: #059669;
             color: white;
-            border: 1px solid #0f172a;
+            border: 1px solid #047857;
         }
-        button.io-btn:hover {
-            background-color: #334155;
+        button.process-btn:hover {
+            background-color: #047857;
         }
         button.delete-btn {
             color: #dc2626;
@@ -94,7 +94,7 @@
             height: 100%;
             touch-action: none;
         }
-        /* MENÚ CONTEXTUAL PERSONALIZADO */
+        /* MENÚ CONTEXTUAL */
         #contextMenu {
             display: none;
             position: absolute;
@@ -103,7 +103,7 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             padding: 6px 0;
-            min-width: 150px;
+            min-width: 160px;
             z-index: 1000;
         }
         .menu-item {
@@ -117,37 +117,59 @@
             background-color: #f1f5f9;
             color: #0f172a;
         }
-        .instruction {
-            font-size: 0.75rem;
-            color: #64748b;
-            margin-left: auto;
-            background-color: #f1f5f9;
-            padding: 4px 10px;
-            border-radius: 6px;
-        }
-        #fileInput {
+        /* VENTANA MODAL ESTILIZADA */
+        #modalOverlay {
             display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(2px);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
         }
+        #processModal {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 450px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+            animation: modalFade 0.2s ease-out;
+        }
+        @keyframes modalFade {
+            from { transform: translateY(10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        #processModal h3 { margin-top: 0; color: #0f172a; font-size: 1.1rem; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 0.8rem; font-weight: 600; color: #475569; margin-bottom: 4px; }
+        .form-group input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 0.9rem; }
+        .product-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+        .product-row input[type="text"] { flex: 2; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
+        .product-row input[type="number"] { flex: 1; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
+        .btn-danger { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; padding: 6px; border-radius: 4px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+        .instruction { font-size: 0.75rem; color: #64748b; margin-left: auto; background-color: #f1f5f9; padding: 4px 10px; border-radius: 6px; }
+        #fileInput { display: none; }
     </style>
 </head>
 <body>
 
     <div id="toolbar">
-        <span class="title">WebPFD</span>
+        <span class="title">WebPFD Pro</span>
         <button class="action-btn" onclick="addStream()">+ Corr</button>
+        <button class="process-btn" onclick="addProcessUnit()">+ Unid. Proceso</button>
         <button onclick="addMixer()">+ Mezclador</button>
         <button onclick="addSplitter()">+ Divisor</button>
         <button class="delete-btn" onclick="deleteSelected()">Borrar</button>
         
         <div class="separator"></div>
-        
-        <button class="io-btn" onclick="exportToJSON()">💾 Guardar</button>
-        <button class="io-btn" onclick="document.getElementById('fileInput').click()">📂 Cargar</button>
+        <button onclick="exportToJSON()">💾 Guardar</button>
+        <button onclick="document.getElementById('fileInput').click()">📂 Cargar</button>
         <input type="file" id="fileInput" accept=".json" onchange="importFromJSON(event)">
 
-        <div class="instruction">
-            <b>PC:</b> Clic derecho para editar. <b>Móvil:</b> Mantén presionado un objeto.
-        </div>
+        <div class="instruction">Clic derecho / Pulsación larga en el equipo para configurar productos.</div>
     </div>
 
     <div id="workspace">
@@ -156,22 +178,44 @@
 
     <div id="contextMenu"></div>
 
+    <div id="modalOverlay">
+        <div id="processModal">
+            <h3 id="modalTitle">Configurar Unidad de Proceso</h3>
+            <div class="form-group">
+                <label>Nombre del Equipo</label>
+                <input type="text" id="unitNameInput">
+            </div>
+            <div class="form-group">
+                <label style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>Productos de Salida y Rendimientos (0.0 a 1.0)</span>
+                    <button type="button" style="padding: 2px 8px; font-size: 0.75rem;" onclick="addModalProductRow('', 0.1)">+ Añadir</button>
+                </label>
+                <div id="productsContainer" style="max-height: 180px; overflow-y: auto; padding-right: 2px;"></div>
+            </div>
+            <div class="modal-actions">
+                <button onclick="closeProcessModal()">Cancelar</button>
+                <button class="action-btn" onclick="saveProcessModalData()">Guardar y Generar Salidas</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const canvas = document.getElementById('pfdCanvas');
         const ctx = canvas.getContext('2d');
         const workspace = document.getElementById('workspace');
         const menu = document.getElementById('contextMenu');
+        const modalOverlay = document.getElementById('modalOverlay');
 
         let streams = [];
         let units = []; 
-        
+        let targetUnitForModal = null;
+
         let selectedElement = null; 
         let activeSelection = null; 
         let dragType = null; 
         let dragOffset = { x: 0, y: 0 };
         let streamDragOffset = { sx: 0, sy: 0, ex: 0, ey: 0 };
-        
-        let touchTimer = null; // Para detectar pulsación larga en móviles
+        let touchTimer = null;
 
         function resizeCanvas() {
             canvas.width = workspace.offsetWidth;
@@ -196,142 +240,147 @@
         class ProcessUnit {
             constructor(id, type, x, y) {
                 this.id = id;
-                this.type = type; 
-                this.name = (type === 'mixer' ? 'Mixer ' : 'Tee ') + id;
-                this.x = x;
-                this.y = y;
-                this.radius = 25;
+                this.type = type; // 'mixer', 'splitter', 'reactor'
+                this.name = type === 'mixer' ? 'Mixer '+id : (type === 'splitter' ? 'Tee '+id : 'Planta '+id);
+                this.x = x; this.y = y;
+                this.radius = 25; // Para mixers/splitters circulares
+                this.width = 60;  // Para unidades de proceso rectangulares
+                this.height = 90;
                 this.fractions = {}; 
+                this.productsSetup = []; // Guarda [{name: 'Gas', yield: 0.6}, ...]
             }
         }
 
         function addStream() {
             const id = streams.length > 0 ? Math.max(...streams.map(s => s.id)) + 1 : 1;
-            const stream = new Stream(id, 50, 100 + (id%5)*40, 180, 100 + (id%5)*40);
+            const stream = new Stream(id, 50, 120, 170, 120);
             streams.push(stream);
             activeSelection = stream;
-            calculateMassBalance();
-            draw();
+            calculateMassBalance(); draw();
+        }
+
+        function addProcessUnit() {
+            const id = units.length > 0 ? Math.max(...units.map(u => u.id)) + 1 : 1;
+            const unit = new ProcessUnit(id, 'reactor', 300, 150);
+            unit.productsSetup = [{name: 'Destilado', yield: 0.6}, {name: 'Fondos', yield: 0.4}];
+            units.push(unit);
+            activeSelection = unit;
+            calculateMassBalance(); draw();
         }
 
         function addMixer() {
             const id = units.length > 0 ? Math.max(...units.map(u => u.id)) + 1 : 1;
-            const unit = new ProcessUnit(id, 'mixer', 250, 180);
+            const unit = new ProcessUnit(id, 'mixer', 200, 200);
             units.push(unit);
             activeSelection = unit;
-            calculateMassBalance();
-            draw();
+            calculateMassBalance(); draw();
         }
 
         function addSplitter() {
             const id = units.length > 0 ? Math.max(...units.map(u => u.id)) + 1 : 1;
-            const unit = new ProcessUnit(id, 'splitter', 250, 280);
+            const unit = new ProcessUnit(id, 'splitter', 200, 320);
             units.push(unit);
             activeSelection = unit;
-            calculateMassBalance();
-            draw();
+            calculateMassBalance(); draw();
         }
 
-        function exportToJSON() {
-            const dataToSave = {
-                units: units.map(u => ({ id: u.id, type: u.type, name: u.name, x: u.x, y: u.y, fractions: u.fractions })),
-                streams: streams.map(s => ({
-                    id: s.id, name: s.name, flow: s.flow, isCalculated: s.isCalculated,
-                    sx: s.sx, sy: s.sy, ex: s.ex, ey: s.ey,
-                    connectedInputUnitId: s.connectedInputUnit ? s.connectedInputUnit.id : null,
-                    connectedOutputUnitId: s.connectedOutputUnit ? s.connectedOutputUnit.id : null
-                }))
-            };
-            const jsonString = JSON.stringify(dataToSave, null, 2);
-            const blob = new Blob([jsonString], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = "simulacion_pfd.json";
-            link.click();
-            URL.revokeObjectURL(url);
+        // INTERFAZ MODAL DINÁMICA
+        function openProcessModal(unit) {
+            targetUnitForModal = unit;
+            document.getElementById('unitNameInput').value = unit.name;
+            const container = document.getElementById('productsContainer');
+            container.innerHTML = '';
+            
+            unit.productsSetup.forEach(p => addModalProductRow(p.name, p.yield));
+            modalOverlay.style.display = 'flex';
         }
 
-        function importFromJSON(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const importedData = JSON.parse(e.target.result);
-                    units = importedData.units.map(u => {
-                        const unit = new ProcessUnit(u.id, u.type, u.x, u.y);
-                        unit.name = u.name;
-                        unit.fractions = u.fractions || {};
-                        return unit;
-                    });
-                    streams = importedData.streams.map(s => {
-                        const stream = new Stream(s.id, s.sx, s.sy, s.ex, s.ey);
-                        stream.name = s.name;
-                        stream.flow = s.flow;
-                        stream.isCalculated = s.isCalculated;
-                        if (s.connectedInputUnitId) stream.connectedInputUnit = units.find(u => u.id === s.connectedInputUnitId);
-                        if (s.connectedOutputUnitId) stream.connectedOutputUnit = units.find(u => u.id === s.connectedOutputUnitId);
-                        return stream;
-                    });
-                    activeSelection = null;
-                    calculateMassBalance();
-                    draw();
-                } catch (err) { alert("Error al leer el archivo JSON."); }
-            };
-            reader.readAsText(file);
-            event.target.value = ''; 
+        function addModalProductRow(name, yieldVal) {
+            const container = document.getElementById('productsContainer');
+            const row = document.createElement('div');
+            row.className = 'product-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Producto" value="${name}" required>
+                <input type="number" step="0.01" min="0" max="1" placeholder="Rendimiento" value="${yieldVal}" required>
+                <button type="button" class="btn-danger" onclick="this.parentElement.remove()">✕</button>
+            `;
+            container.appendChild(row);
         }
 
-        function deleteSelected() {
-            if (!activeSelection) return;
-            if (activeSelection instanceof Stream) {
-                streams = streams.filter(s => s !== activeSelection);
-            } else if (activeSelection instanceof ProcessUnit) {
-                streams.forEach(s => {
-                    if (s.connectedInputUnit === activeSelection) s.connectedInputUnit = null;
-                    if (s.connectedOutputUnit === activeSelection) s.connectedOutputUnit = null;
+        function closeProcessModal() { modalOverlay.style.display = 'none'; targetUnitForModal = null; }
+
+        function saveProcessModalData() {
+            if(!targetUnitForModal) return;
+            targetUnitForModal.name = document.getElementById('unitNameInput').value || targetUnitForModal.name;
+            
+            const rows = document.querySelectorAll('.product-row');
+            const newSetup = [];
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                newSetup.push({
+                    name: inputs[0].value || 'Producto',
+                    yield: parseFloat(inputs[1].value) || 0
                 });
-                units = units.filter(u => u !== activeSelection);
-            }
-            activeSelection = null;
+            });
+
+            targetUnitForModal.productsSetup = newSetup;
+
+            // Borrar corrientes de salida previas que estaban conectadas a este equipo para regenerarlas limpiamente
+            streams = streams.filter(s => s.connectedInputUnit !== targetUnitForModal);
+
+            // Generar automáticamente las nuevas corrientes de salida dispuestas en cascada a la derecha
+            newSetup.forEach((prod, index) => {
+                const sId = streams.length > 0 ? Math.max(...streams.map(s => s.id)) + 1 : 1;
+                const outX = targetUnitForModal.x + targetUnitForModal.width;
+                const outY = targetUnitForModal.y + 20 + (index * 25);
+                
+                const newStream = new Stream(sId, outX, outY, outX + 120, outY + (index * 15));
+                newStream.name = prod.name;
+                newStream.connectedInputUnit = targetUnitForModal;
+                streams.push(newStream);
+            });
+
+            closeProcessModal();
             calculateMassBalance();
             draw();
         }
-
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
-        });
 
         function calculateMassBalance() {
+            // Inicializar marcas de cálculo
             streams.forEach(s => s.isCalculated = !!s.connectedInputUnit);
+
             for (let k = 0; k < 3; k++) {
                 units.forEach(unit => {
                     const inputs = streams.filter(s => s.connectedOutputUnit === unit);
                     const outputs = streams.filter(s => s.connectedInputUnit === unit);
                     const totalInputFlow = inputs.reduce((sum, s) => sum + s.flow, 0);
 
-                    if (unit.type === 'mixer') {
-                        if (outputs.length > 0) {
-                            const flowPerOutput = totalInputFlow / outputs.length;
-                            outputs.forEach(s => { s.flow = Number(flowPerOutput.toFixed(2)); s.isCalculated = true; });
+                    if (unit.type === 'mixer' && outputs.length > 0) {
+                        const flowPerOutput = totalInputFlow / outputs.length;
+                        outputs.forEach(s => { s.flow = Number(flowPerOutput.toFixed(2)); s.isCalculated = true; });
+                    } 
+                    else if (unit.type === 'splitter' && outputs.length > 0) {
+                        Object.keys(unit.fractions).forEach(sid => { if (!outputs.some(o => o.id == sid)) delete unit.fractions[sid]; });
+                        const unassigned = outputs.filter(o => unit.fractions[o.id] === undefined);
+                        if (unassigned.length > 0) {
+                            const currentSum = outputs.filter(o => unit.fractions[o.id] !== undefined).reduce((sum, o) => sum + unit.fractions[o.id], 0);
+                            const defaultFrac = Math.max(0, 1 - currentSum) / unassigned.length;
+                            unassigned.forEach(o => unit.fractions[o.id] = Number(defaultFrac.toFixed(3)));
                         }
-                    } else if (unit.type === 'splitter') {
-                        if (outputs.length > 0) {
-                            Object.keys(unit.fractions).forEach(sid => { if (!outputs.some(o => o.id == sid)) delete unit.fractions[sid]; });
-                            const unassigned = outputs.filter(o => unit.fractions[o.id] === undefined);
-                            if (unassigned.length > 0) {
-                                const currentAssignedSum = outputs.filter(o => unit.fractions[o.id] !== undefined).reduce((sum, o) => sum + unit.fractions[o.id], 0);
-                                const remainingFrac = Math.max(0, 1 - currentAssignedSum);
-                                const defaultFrac = remainingFrac / unassigned.length;
-                                unassigned.forEach(o => unit.fractions[o.id] = Number(defaultFrac.toFixed(3)));
-                            }
-                            outputs.forEach(s => {
-                                const frac = unit.fractions[s.id] || 0;
-                                s.flow = Number((totalInputFlow * frac).toFixed(2));
+                        outputs.forEach(s => {
+                            s.flow = Number((totalInputFlow * (unit.fractions[s.id] || 0)).toFixed(2));
+                            s.isCalculated = true;
+                        });
+                    }
+                    else if (unit.type === 'reactor' && outputs.length > 0) {
+                        // Emparejar salidas físicas generadas con la configuración del setup del modal
+                        outputs.forEach((s, idx) => {
+                            const config = unit.productsSetup[idx];
+                            if(config) {
+                                s.flow = Number((totalInputFlow * config.yield).toFixed(2));
                                 s.isCalculated = true;
-                            });
-                        }
+                            }
+                        });
                     }
                 });
             }
@@ -344,32 +393,44 @@
             units.forEach(u => {
                 const isSelected = (u === activeSelection);
                 ctx.beginPath();
-                ctx.arc(u.x, u.y, u.radius, 0, 2 * Math.PI);
-                ctx.fillStyle = isSelected ? '#eff6ff' : '#ffffff';
-                ctx.fill();
-                ctx.strokeStyle = isSelected ? '#2563eb' : '#0f172a';
+                ctx.fillStyle = isSelected ? '#f0fdf4' : '#ffffff';
+                ctx.strokeStyle = isSelected ? '#10b981' : '#0f172a';
                 ctx.lineWidth = isSelected ? 2.5 : 2;
-                ctx.stroke();
 
-                ctx.beginPath();
-                if (u.type === 'mixer') {
-                    ctx.moveTo(u.x - 8, u.y - 8); ctx.lineTo(u.x + 8, u.y + 8);
-                    ctx.moveTo(u.x - 8, u.y + 10); ctx.lineTo(u.x + 8, u.y - 8);
+                if (u.type === 'reactor') {
+                    // Diseño Rectangular de Planta Industrial
+                    ctx.roundRect(u.x, u.y, u.width, u.height, 6);
+                    ctx.fill(); ctx.stroke();
+                    
+                    // Líneas decorativas de fraccionamiento interno
+                    ctx.beginPath();
+                    ctx.moveTo(u.x, u.y + u.height/3); ctx.lineTo(u.x + u.width, u.y + u.height/3);
+                    ctx.moveTo(u.x, u.y + (u.height/3)*2); ctx.lineTo(u.x + u.width, u.y + (u.height/3)*2);
+                    ctx.strokeStyle = '#e2e8f0'; ctx.stroke();
+
+                    ctx.fillStyle = '#0f172a';
+                    ctx.font = '600 12px sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillText(u.name, u.x + u.width/2, u.y - 8);
                 } else {
-                    ctx.moveTo(u.x - 10, u.y); ctx.lineTo(u.x + 10, u.y);
-                    ctx.moveTo(u.x, u.y);     ctx.lineTo(u.x, u.y + 10);
+                    // Diseño Circular para Mixers / Tees
+                    ctx.arc(u.x, u.y, u.radius, 0, 2 * Math.PI);
+                    ctx.fill(); ctx.stroke();
+                    ctx.beginPath();
+                    if (u.type === 'mixer') {
+                        ctx.moveTo(u.x - 8, u.y - 8); ctx.lineTo(u.x + 8, u.y + 8);
+                        ctx.moveTo(u.x - 8, u.y + 8); ctx.lineTo(u.x + 8, u.y - 8);
+                    } else {
+                        ctx.moveTo(u.x - 10, u.y); ctx.lineTo(u.x + 10, u.y);
+                        ctx.moveTo(u.x, u.y); ctx.lineTo(u.x, u.y + 10);
+                    }
+                    ctx.strokeStyle = '#94a3b8'; ctx.stroke();
+                    ctx.fillStyle = '#0f172a';
+                    ctx.font = '600 12px sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillText(u.name, u.x, u.y - u.radius - 8);
                 }
-                ctx.strokeStyle = '#94a3b8';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-
-                ctx.fillStyle = '#0f172a';
-                ctx.font = '600 12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(u.name, u.x, u.y - u.radius - 8);
             });
 
-            // DIBUJAR CORRIENTES
+            // DIBUJAR CORRIENTES (ZIGZAG ORTOGONAL)
             streams.forEach(s => {
                 const isSelected = (s === activeSelection);
                 const midX = s.sx + (s.ex - s.sx) / 2;
@@ -379,224 +440,156 @@
                 ctx.lineTo(midX, s.sy);            
                 ctx.lineTo(midX, s.ey);            
                 ctx.lineTo(s.ex, s.ey);            
-                
                 ctx.strokeStyle = isSelected ? '#3b82f6' : (s.isCalculated ? '#0f172a' : '#64748b'); 
                 ctx.lineWidth = isSelected ? 3.5 : 2.5;
                 ctx.stroke();
 
+                // Flecha final
                 ctx.beginPath();
-                ctx.moveTo(s.ex, s.ey);
-                ctx.lineTo(s.ex - 10, s.ey - 5);
-                ctx.lineTo(s.ex - 10, s.ey + 5);
-                ctx.fillStyle = isSelected ? '#3b82f6' : (s.isCalculated ? '#0f172a' : '#64748b');
-                ctx.fill();
+                ctx.moveTo(s.ex, s.ey); ctx.lineTo(s.ex - 10, s.ey - 5); ctx.lineTo(s.ex - 10, s.ey + 5);
+                ctx.fillStyle = isSelected ? '#3b82f6' : (s.isCalculated ? '#0f172a' : '#64748b'); ctx.fill();
 
+                // Nodos de conexión
                 ctx.beginPath();
-                ctx.arc(s.sx, s.sy, 6, 0, 2*Math.PI);
-                ctx.arc(s.ex, s.ey, 6, 0, 2*Math.PI);
-                ctx.fillStyle = '#ef4444';
-                ctx.fill();
+                ctx.arc(s.sx, s.sy, 5, 0, 2*Math.PI);
+                ctx.arc(s.ex, s.ey, 5, 0, 2*Math.PI);
+                ctx.fillStyle = '#ef4444'; ctx.fill();
 
+                // Tarjeta de información
                 const labelX = midX;
                 const labelY = s.sy + (s.ey - s.sy) / 2 - 18;
+                ctx.fillStyle = '#ffffff'; ctx.shadowBlur = 4; ctx.shadowColor = 'rgba(0,0,0,0.05)';
+                ctx.beginPath(); ctx.roundRect(labelX - 55, labelY - 12, 110, 32, 4); ctx.fill();
+                ctx.shadowBlur = 0; ctx.strokeStyle = isSelected ? '#3b82f6' : '#e2e8f0'; ctx.stroke();
                 
-                ctx.fillStyle = '#ffffff';
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.05)';
-                ctx.shadowBlur = 4;
-                ctx.beginPath();
-                ctx.roundRect(labelX - 55, labelY - 12, 110, 32, 4);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-
-                ctx.strokeStyle = isSelected ? '#3b82f6' : '#e2e8f0';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-                
-                ctx.fillStyle = '#0f172a';
-                ctx.font = '600 11px sans-serif';
-                ctx.textAlign = 'left';
+                ctx.fillStyle = '#0f172a'; ctx.font = '600 11px sans-serif'; ctx.textAlign = 'left';
                 ctx.fillText(s.name, labelX - 48, labelY + 3);
-
-                let fracText = '';
-                if (s.connectedInputUnit && s.connectedInputUnit.type === 'splitter') {
-                    const f = s.connectedInputUnit.fractions[s.id] || 0;
-                    fracText = ` (${Math.round(f*100)}%)`;
-                }
-                ctx.fillStyle = '#64748b';
-                ctx.font = '10px monospace';
-                ctx.fillText(`${s.flow} kg/h${fracText}`, labelX - 48, labelY + 15);
+                ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
+                ctx.fillText(`${s.flow} kg/h`, labelX - 48, labelY + 15);
             });
         }
 
-        // CONTROLADOR DEL MENÚ CONTEXTUAL DINÁMICO
         function showContextMenu(x, y, target) {
-            menu.innerHTML = ''; // Limpiar opciones previas
+            menu.innerHTML = '';
+            const opt = document.createElement('div');
+            opt.className = 'menu-item';
             
-            if (target instanceof ProcessUnit) {
-                // Opción común: Renombrar
-                const optRename = document.createElement('div');
-                optRename.className = 'menu-item';
-                optRename.innerText = '✏️ Renombrar';
-                optRename.onclick = () => {
-                    const n = prompt("Nuevo nombre de la unidad:", target.name);
-                    if (n) target.name = n;
-                    closeMenu();
+            if (target instanceof ProcessUnit && target.type === 'reactor') {
+                opt.innerText = '⚙️ Configurar Productos';
+                opt.onclick = () => { openProcessModal(target); closeMenu(); };
+            } else {
+                opt.innerText = '✏️ Renombrar';
+                opt.onclick = () => {
+                    const n = prompt("Nuevo nombre:", target.name);
+                    if(n) target.name = n; closeMenu();
                 };
-                menu.appendChild(optRename);
+            }
+            menu.appendChild(opt);
 
-                // Opción exclusiva: Definir fracciones (Solo para divisores/splitter)
-                if (target.type === 'splitter') {
-                    const optFrac = document.createElement('div');
-                    optFrac.className = 'menu-item';
-                    optFrac.innerText = '📊 Definir fracciones';
-                    optFrac.onclick = () => {
-                        const outputs = streams.filter(s => s.connectedInputUnit === target);
-                        if (outputs.length === 0) { alert("Conecta corrientes de salida al Divisor primero."); closeMenu(); return; }
-                        for (let s of outputs) {
-                            const current = target.fractions[s.id] || (1 / outputs.length);
-                            const val = prompt(`Fracción para "${s.name}" (0 a 1):`, current);
-                            if (val !== null && !isNaN(val)) target.fractions[s.id] = parseFloat(val);
-                        }
-                        closeMenu();
-                    };
-                    menu.appendChild(optFrac);
-                }
-            } else if (target instanceof Stream) {
-                const optRename = document.createElement('div');
-                optRename.className = 'menu-item';
-                optRename.innerText = '✏️ Renombrar';
-                optRename.onclick = () => {
-                    const n = prompt("Nuevo nombre de la corriente:", target.name);
-                    if (n) target.name = n;
-                    closeMenu();
+            if (target instanceof Stream && !target.isCalculated) {
+                const optFlow = document.createElement('div');
+                optFlow.className = 'menu-item';
+                optFlow.innerText = '⚖️ Editar Flujo';
+                optFlow.onclick = () => {
+                    const f = prompt("Flujo (kg/h):", target.flow);
+                    if(f && !isNaN(f)) target.flow = parseFloat(f); closeMenu();
                 };
-                menu.appendChild(optRename);
-
-                if (!target.isCalculated) {
-                    const optFlow = document.createElement('div');
-                    optFlow.className = 'menu-item';
-                    optFlow.innerText = '⚖️ Editar Flujo';
-                    optFlow.onclick = () => {
-                        const f = prompt("Flujo másico (kg/h):", target.flow);
-                        if (f && !isNaN(f)) target.flow = parseFloat(f);
-                        closeMenu();
-                    };
-                    menu.appendChild(optFlow);
-                }
+                menu.appendChild(optFlow);
             }
 
-            // Mostrar el menú en las coordenadas indicadas
-            menu.style.left = `${x}px`;
-            menu.style.top = `${y}px`;
-            menu.style.display = 'block';
+            menu.style.left = `${x}px`; menu.style.top = `${y}px`; menu.style.display = 'block';
         }
 
-        function closeMenu() {
-            menu.style.display = 'none';
-            calculateMassBalance();
-            draw();
-        }
-
-        // Cierra el menú al hacer click afuera
+        function closeMenu() { menu.style.display = 'none'; calculateMassBalance(); draw(); }
         window.addEventListener('click', () => { if(menu.style.display === 'block') closeMenu(); });
 
-        // CAPTURA DE EVENTO CLIC DERECHO (PC)
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
 
-            // Buscar si se hizo click sobre un equipo o corriente
             for (let u of units) {
-                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 10) {
-                    showContextMenu(e.clientX, e.clientY, u); return;
-                }
+                if (u.type === 'reactor' && mx >= u.x && mx <= u.x + u.width && my >= u.y && my <= u.y + u.height) { showContextMenu(e.clientX, e.clientY, u); return; }
+                if (u.type !== 'reactor' && Math.hypot(u.x - mx, u.y - my) < u.radius + 10) { showContextMenu(e.clientX, e.clientY, u); return; }
             }
             for (let s of streams) {
-                const midX = s.sx + (s.ex - s.sx) / 2;
-                const midY = s.sy + (s.ey - s.sy) / 2 - 18;
-                if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) {
-                    showContextMenu(e.clientX, e.clientY, s); return;
-                }
+                const midX = s.sx + (s.ex - s.sx) / 2; const midY = s.sy + (s.ey - s.sy) / 2 - 18;
+                if (mx >= midX - 55 && mx <= midX + 55 && my >= midY - 12 && my <= midY + 20) { showContextMenu(e.clientX, e.clientY, s); return; }
             }
         });
 
-        // DETECCIONES GENERALES DE INTERACCIÓN (MOUSE/TOUCH)
         function handleStart(clientX, clientY, isTouch) {
             const rect = canvas.getBoundingClientRect();
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
+            const mx = clientX - rect.left; const my = clientY - rect.top;
 
-            // En móviles, si dejamos presionado por 600ms, emulamos un clic derecho
             if (isTouch) {
                 clearTimeout(touchTimer);
                 touchTimer = setTimeout(() => {
                     for (let u of units) {
-                        if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 15) { showContextMenu(clientX, clientY, u); return; }
-                    }
-                    for (let s of streams) {
-                        const midX = s.sx + (s.ex - s.sx) / 2;
-                        const midY = s.sy + (s.ey - s.sy) / 2 - 18;
-                        if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) { showContextMenu(clientX, clientY, s); return; }
+                        if (u.type === 'reactor' && mx >= u.x && mx <= u.x + u.width && my >= u.y && my <= u.y + u.height) { showContextMenu(clientX, clientY, u); return; }
+                        if (u.type !== 'reactor' && Math.hypot(u.x - mx, u.y - my) < u.radius + 15) { showContextMenu(clientX, clientY, u); return; }
                     }
                 }, 600);
             }
 
-            // 1. Extremos de corrientes
             for (let s of streams) {
-                if (Math.hypot(s.sx - mouseX, s.sy - mouseY) < 22) { selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; }
-                if (Math.hypot(s.ex - mouseX, s.ey - mouseY) < 22) { selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; }
+                if (Math.hypot(s.sx - mx, s.sy - my) < 22) { selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; }
+                if (Math.hypot(s.ex - mx, s.ey - my) < 22) { selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; }
             }
 
-            // 2. Mover corriente completa por su tarjeta de texto
             for (let s of streams) {
-                const midX = s.sx + (s.ex - s.sx) / 2;
-                const midY = s.sy + (s.ey - s.sy) / 2 - 18;
-                if (mouseX >= midX - 55 && mouseX <= midX + 55 && mouseY >= midY - 12 && mouseY <= midY + 20) {
+                const midX = s.sx + (s.ex - s.sx) / 2; const midY = s.sy + (s.ey - s.sy) / 2 - 18;
+                if (mx >= midX - 55 && mx <= midX + 55 && my >= midY - 12 && my <= midY + 20) {
                     selectedElement = s; dragType = 'stream_body'; activeSelection = s;
-                    streamDragOffset.sx = mouseX - s.sx; streamDragOffset.sy = mouseY - s.sy;
-                    streamDragOffset.ex = mouseX - s.ex; streamDragOffset.ey = mouseY - s.ey;
+                    streamDragOffset.sx = mx - s.sx; streamDragOffset.sy = my - s.sy;
+                    streamDragOffset.ex = mx - s.ex; streamDragOffset.ey = my - s.ey;
                     draw(); return;
                 }
             }
 
-            // 3. Mover unidades
             for (let u of units) {
-                if (Math.hypot(u.x - mouseX, u.y - mouseY) < u.radius + 10) {
+                if (u.type === 'reactor' && mx >= u.x && mx <= u.x + u.width && my >= u.y && my <= u.y + u.height) {
                     selectedElement = u; dragType = 'unit'; activeSelection = u;
-                    dragOffset.x = mouseX - u.x; dragOffset.y = mouseY - u.y;
+                    dragOffset.x = mx - u.x; dragOffset.y = my - u.y;
+                    draw(); return;
+                }
+                if (u.type !== 'reactor' && Math.hypot(u.x - mx, u.y - my) < u.radius + 12) {
+                    selectedElement = u; dragType = 'unit'; activeSelection = u;
+                    dragOffset.x = mx - u.x; dragOffset.y = my - u.y;
                     draw(); return;
                 }
             }
-            activeSelection = null;
-            draw();
+            activeSelection = null; draw();
         }
 
         function handleMove(clientX, clientY) {
-            clearTimeout(touchTimer); // Si se mueve, cancela la pulsación larga
+            clearTimeout(touchTimer);
             if (!selectedElement) return;
             const rect = canvas.getBoundingClientRect();
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
+            const mx = clientX - rect.left; const my = clientY - rect.top;
 
             if (dragType === 'start') {
-                selectedElement.sx = mouseX; selectedElement.sy = mouseY; selectedElement.connectedInputUnit = null; 
+                selectedElement.sx = mx; selectedElement.sy = my; selectedElement.connectedInputUnit = null;
             } else if (dragType === 'end') {
-                selectedElement.ex = mouseX; selectedElement.ey = mouseY; selectedElement.connectedOutputUnit = null;
+                selectedElement.ex = mx; selectedElement.ey = my; selectedElement.connectedOutputUnit = null;
             } else if (dragType === 'stream_body') {
                 selectedElement.connectedInputUnit = null; selectedElement.connectedOutputUnit = null;
-                selectedElement.sx = mouseX - streamDragOffset.sx; selectedElement.sy = mouseY - streamDragOffset.sy;
-                selectedElement.ex = mouseX - streamDragOffset.ex; selectedElement.ey = mouseY - streamDragOffset.ey;
+                selectedElement.sx = mx - streamDragOffset.sx; selectedElement.sy = my - streamDragOffset.sy;
+                selectedElement.ex = mx - streamDragOffset.ex; selectedElement.ey = my - streamDragOffset.ey;
             } else if (dragType === 'unit') {
-                selectedElement.x = mouseX - dragOffset.x; selectedElement.y = mouseY - dragOffset.y;
+                selectedElement.x = mx - dragOffset.x; selectedElement.y = my - dragOffset.y;
                 streams.forEach(s => {
-                    if (s.connectedInputUnit === selectedElement) { s.sx = selectedElement.x; s.sy = selectedElement.y; }
-                    if (s.connectedOutputUnit === selectedElement) { s.ex = selectedElement.x; s.ey = selectedElement.y; }
+                    if (s.connectedInputUnit === selectedElement) { 
+                        s.sx = selectedElement.type === 'reactor' ? selectedElement.x + selectedElement.width : selectedElement.x; 
+                        s.sy = selectedElement.type === 'reactor' ? selectedElement.y + 20 : selectedElement.y; 
+                    }
+                    if (s.connectedOutputUnit === selectedElement) { 
+                        s.ex = selectedElement.type === 'reactor' ? selectedElement.x : selectedElement.x; 
+                        s.ey = selectedElement.type === 'reactor' ? selectedElement.y + selectedElement.height/2 : selectedElement.y; 
+                    }
                 });
             }
-            calculateMassBalance();
-            draw();
+            calculateMassBalance(); draw();
         }
 
         function handleEnd() {
@@ -606,22 +599,43 @@
                 const px = dragType === 'start' ? selectedElement.sx : selectedElement.ex;
                 const py = dragType === 'start' ? selectedElement.sy : selectedElement.ey;
                 units.forEach(u => {
-                    if (Math.hypot(u.x - px, u.y - py) < u.radius + 20) {
-                        if (dragType === 'start') { selectedElement.sx = u.x; selectedElement.sy = u.y; selectedElement.connectedInputUnit = u; } 
-                        else { selectedElement.ex = u.x; selectedElement.ey = u.y; selectedElement.connectedOutputUnit = u; }
+                    let hit = false;
+                    if (u.type === 'reactor' && px >= u.x - 15 && px <= u.x + u.width + 15 && py >= u.y - 15 && py <= u.y + u.height + 15) hit = true;
+                    if (u.type !== 'reactor' && Math.hypot(u.x - px, u.y - py) < u.radius + 20) hit = true;
+
+                    if (hit) {
+                        if (dragType === 'start') { 
+                            selectedElement.sx = u.type === 'reactor' ? u.x + u.width : u.x; 
+                            selectedElement.sy = u.type === 'reactor' ? u.y + 20 : u.y; 
+                            selectedElement.connectedInputUnit = u; 
+                        } else { 
+                            selectedElement.ex = u.x; 
+                            selectedElement.ey = u.type === 'reactor' ? u.y + u.height/2 : u.y; 
+                            selectedElement.connectedOutputUnit = u; 
+                        }
                     }
                 });
             }
             selectedElement = null; dragType = null;
-            calculateMassBalance();
-            draw();
+            calculateMassBalance(); draw();
         }
 
-        // EVENT LISTENERS FUSIONADOS MOUSE/TOUCH
+        function deleteSelected() {
+            if (!activeSelection) return;
+            if (activeSelection instanceof Stream) { streams = streams.filter(s => s !== activeSelection); } 
+            else if (activeSelection instanceof ProcessUnit) {
+                streams.forEach(s => {
+                    if (s.connectedInputUnit === activeSelection) s.connectedInputUnit = null;
+                    if (s.connectedOutputUnit === activeSelection) s.connectedOutputUnit = null;
+                });
+                units = units.filter(u => u !== activeSelection);
+            }
+            activeSelection = null; calculateMassBalance(); draw();
+        }
+
         canvas.addEventListener('mousedown', (e) => { if(e.button === 0) handleStart(e.clientX, e.clientY, false); });
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
         canvas.addEventListener('mouseup', handleEnd);
-
         canvas.addEventListener('touchstart', (e) => { if(e.touches.length > 0) handleStart(e.touches[0].clientX, e.touches[0].clientY, true); }, { passive: true });
         canvas.addEventListener('touchmove', (e) => { if(e.touches.length > 0) handleMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
         canvas.addEventListener('touchend', handleEnd);
