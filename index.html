@@ -386,6 +386,59 @@
             }
         }
 
+        function exportToJSON() {
+            const dataToSave = {
+                units: units.map(u => ({ id: u.id, type: u.type, name: u.name, x: u.x, y: u.y, fractions: u.fractions, productsSetup: u.productsSetup })),
+                streams: streams.map(s => ({
+                    id: s.id, name: s.name, flow: s.flow, isCalculated: s.isCalculated,
+                    sx: s.sx, sy: s.sy, ex: s.ex, ey: s.ey,
+                    connectedInputUnitId: s.connectedInputUnit ? s.connectedInputUnit.id : null,
+                    connectedOutputUnitId: s.connectedOutputUnit ? s.connectedOutputUnit.id : null
+                }))
+            };
+            const jsonString = JSON.stringify(dataToSave, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "simulacion_pfd.json";
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importFromJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    units = importedData.units.map(u => {
+                        const unit = new ProcessUnit(u.id, u.type, u.x, u.y);
+                        unit.name = u.name;
+                        unit.fractions = u.fractions || {};
+                        unit.productsSetup = u.productsSetup || [];
+                        return unit;
+                    });
+                    streams = importedData.streams.map(s => {
+                        const stream = new Stream(s.id, s.sx, s.sy, s.ex, s.ey);
+                        stream.name = s.name;
+                        stream.flow = s.flow;
+                        stream.isCalculated = s.isCalculated;
+                        if (s.connectedInputUnitId) stream.connectedInputUnit = units.find(u => u.id === s.connectedInputUnitId);
+                        if (s.connectedOutputUnitId) stream.connectedOutputUnit = units.find(u => u.id === s.connectedOutputUnitId);
+                        return stream;
+                    });
+                    activeSelection = null;
+                    calculateMassBalance();
+                    draw();
+                    alert("Simulación cargada.");
+                } catch (err) { alert("Error al leer el archivo JSON."); }
+            };
+            reader.readAsText(file);
+            event.target.value = ''; 
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -609,7 +662,7 @@
                             selectedElement.sy = u.type === 'reactor' ? u.y + 20 : u.y; 
                             selectedElement.connectedInputUnit = u; 
                         } else { 
-                            selectedElement.ex = u.x; 
+                            selectedElement.ex = u.type === 'reactor' ? u.x : u.x; 
                             selectedElement.ey = u.type === 'reactor' ? u.y + u.height/2 : u.y; 
                             selectedElement.connectedOutputUnit = u; 
                         }
