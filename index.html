@@ -79,20 +79,31 @@
             background-color: #fef2f2;
             border-color: #ef4444;
         }
+        .zoom-controls {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+        .zoom-display {
+            font-size: 0.85rem;
+            color: #64748b;
+            min-width: 45px;
+            text-align: center;
+            font-weight: 500;
+        }
         #workspace {
             flex-grow: 1;
             position: relative;
             background-color: #ffffff;
             background-image: radial-gradient(#e2e8f0 1.2px, transparent 1.2px);
             background-size: 24px 24px;
+            overflow: hidden;
         }
         canvas {
             display: block;
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
             touch-action: none;
         }
         /* MENÚ CONTEXTUAL */
@@ -169,8 +180,16 @@
         <button onclick="exportToJSON()">💾 Guardar</button>
         <button onclick="document.getElementById('fileInput').click()">📂 Cargar</button>
         <input type="file" id="fileInput" accept=".json" onchange="importFromJSON(event)">
+        
+        <div class="separator"></div>
+        <div class="zoom-controls">
+            <button onclick="zoomOut()">🔍−</button>
+            <div class="zoom-display" id="zoomDisplay">100%</div>
+            <button onclick="zoomIn()">🔍+</button>
+            <button onclick="resetZoom()">Resetear</button>
+        </div>
 
-        <div class="instruction">Clic derecho / Pulsación larga en el equipo para configurar. Arrastra los nodos rojos de las corrientes para reposicionarlas.</div>
+        <div class="instruction">Clic derecho / Pulsación larga en el equipo para configurar. Arrastra los nodos rojos de las corrientes para reposicionarlas. Rueda del ratón para zoom.</div>
     </div>
 
     <div id="workspace">
@@ -209,7 +228,7 @@
 
     <script>
         const canvas = document.getElementById('pfdCanvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: true });
         const workspace = document.getElementById('workspace');
         const menu = document.getElementById('contextMenu');
         const modalOverlay = document.getElementById('modalOverlay');
@@ -225,11 +244,47 @@
         let streamDragOffset = { sx: 0, sy: 0, ex: 0, ey: 0 };
         let touchTimer = null;
 
-        function resizeCanvas() {
-            canvas.width = workspace.offsetWidth;
-            canvas.height = workspace.offsetHeight;
+        // ZOOM CONTROLS
+        let zoomLevel = 1;
+        const minZoom = 0.5;
+        const maxZoom = 3;
+        let panX = 0;
+        let panY = 0;
+
+        function updateZoomDisplay() {
+            document.getElementById('zoomDisplay').textContent = Math.round(zoomLevel * 100) + '%';
+        }
+
+        function zoomIn() {
+            zoomLevel = Math.min(zoomLevel + 0.1, maxZoom);
+            updateZoomDisplay();
             draw();
         }
+
+        function zoomOut() {
+            zoomLevel = Math.max(zoomLevel - 0.1, minZoom);
+            updateZoomDisplay();
+            draw();
+        }
+
+        function resetZoom() {
+            zoomLevel = 1;
+            panX = 0;
+            panY = 0;
+            updateZoomDisplay();
+            draw();
+        }
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = workspace.offsetWidth * dpr;
+            canvas.height = workspace.offsetHeight * dpr;
+            canvas.style.width = workspace.offsetWidth + 'px';
+            canvas.style.height = workspace.offsetHeight + 'px';
+            ctx.scale(dpr, dpr);
+            draw();
+        }
+
         window.addEventListener('resize', resizeCanvas);
 
         class Stream {
@@ -499,7 +554,14 @@
         }
 
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const displayWidth = workspace.offsetWidth;
+            const displayHeight = workspace.offsetHeight;
+            ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+            // Aplicar transformaciones de zoom y pan
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(zoomLevel, zoomLevel);
 
             // DIBUJAR UNIDADES
             units.forEach(u => {
@@ -589,6 +651,19 @@
                 ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
                 ctx.fillText(`${s.flow} kg/h`, labelX - 48, labelY + 15);
             });
+
+            ctx.restore();
+        }
+
+        function screenToCanvas(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            const x = (clientX - rect.left) / dpr;
+            const y = (clientY - rect.top) / dpr;
+            return {
+                x: (x - panX) / zoomLevel,
+                y: (y - panY) / zoomLevel
+            };
         }
 
         function showContextMenu(x, y, target) {
@@ -633,60 +708,58 @@
 
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+            const pos = screenToCanvas(e.clientX, e.clientY);
 
             for (let u of units) {
-                if (u.type === 'reactor' && mx >= u.x && mx <= u.x + u.width && my >= u.y && my <= u.y + u.height) { showContextMenu(e.clientX, e.clientY, u); return; }
-                if (u.type !== 'reactor' && Math.hypot(u.x - mx, u.y - my) < u.radius + 10) { showContextMenu(e.clientX, e.clientY, u); return; }
+                if (u.type === 'reactor' && pos.x >= u.x && pos.x <= u.x + u.width && pos.y >= u.y && pos.y <= u.y + u.height) { showContextMenu(e.clientX, e.clientY, u); return; }
+                if (u.type !== 'reactor' && Math.hypot(u.x - pos.x, u.y - pos.y) < u.radius + 10) { showContextMenu(e.clientX, e.clientY, u); return; }
             }
             for (let s of streams) {
-                if (Math.hypot(s.sx - mx, s.sy - my) < 22) { showContextMenu(e.clientX, e.clientY, s); return; }
-                if (Math.hypot(s.ex - mx, s.ey - my) < 22) { showContextMenu(e.clientX, e.clientY, s); return; }
+                if (Math.hypot(s.sx - pos.x, s.sy - pos.y) < 22) { showContextMenu(e.clientX, e.clientY, s); return; }
+                if (Math.hypot(s.ex - pos.x, s.ey - pos.y) < 22) { showContextMenu(e.clientX, e.clientY, s); return; }
             }
         });
 
         function handleStart(clientX, clientY, isTouch) {
-            const rect = canvas.getBoundingClientRect();
-            const mx = clientX - rect.left; const my = clientY - rect.top;
+            const pos = screenToCanvas(clientX, clientY);
 
             if (isTouch) {
                 clearTimeout(touchTimer);
                 touchTimer = setTimeout(() => {
                     for (let u of units) {
-                        if (u.type === 'reactor' && mx >= u.x && mx <= u.x + u.width && my >= u.y && my <= u.y + u.height) { showContextMenu(clientX, clientY, u); return; }
-                        if (u.type !== 'reactor' && Math.hypot(u.x - mx, u.y - my) < u.radius + 15) { showContextMenu(clientX, clientY, u); return; }
+                        if (u.type === 'reactor' && pos.x >= u.x && pos.x <= u.x + u.width && pos.y >= u.y && pos.y <= u.y + u.height) { showContextMenu(clientX, clientY, u); return; }
+                        if (u.type !== 'reactor' && Math.hypot(u.x - pos.x, u.y - pos.y) < u.radius + 15) { showContextMenu(clientX, clientY, u); return; }
                     }
                 }, 600);
             }
 
             // Prioridad: detectar nodos de corrientes primero (son pequeños)
             for (let s of streams) {
-                if (Math.hypot(s.sx - mx, s.sy - my) < 22) { selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; }
-                if (Math.hypot(s.ex - mx, s.ey - my) < 22) { selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; }
+                if (Math.hypot(s.sx - pos.x, s.sy - pos.y) < 22) { selectedElement = s; dragType = 'start'; activeSelection = s; draw(); return; }
+                if (Math.hypot(s.ex - pos.x, s.ey - pos.y) < 22) { selectedElement = s; dragType = 'end'; activeSelection = s; draw(); return; }
             }
 
             // Luego detectar cuerpo de corriente
             for (let s of streams) {
                 const midX = s.sx + (s.ex - s.sx) / 2; const midY = s.sy + (s.ey - s.sy) / 2 - 18;
-                if (mx >= midX - 55 && mx <= midX + 55 && my >= midY - 12 && my <= midY + 20) {
+                if (pos.x >= midX - 55 && pos.x <= midX + 55 && pos.y >= midY - 12 && pos.y <= midY + 20) {
                     selectedElement = s; dragType = 'stream_body'; activeSelection = s;
-                    streamDragOffset.sx = mx - s.sx; streamDragOffset.sy = my - s.sy;
-                    streamDragOffset.ex = mx - s.ex; streamDragOffset.ey = my - s.ey;
+                    streamDragOffset.sx = pos.x - s.sx; streamDragOffset.sy = pos.y - s.sy;
+                    streamDragOffset.ex = pos.x - s.ex; streamDragOffset.ey = pos.y - s.ey;
                     draw(); return;
                 }
             }
 
             // Finalmente detectar unidades
             for (let u of units) {
-                if (u.type === 'reactor' && mx >= u.x && mx <= u.x + u.width && my >= u.y && my <= u.y + u.height) {
+                if (u.type === 'reactor' && pos.x >= u.x && pos.x <= u.x + u.width && pos.y >= u.y && pos.y <= u.y + u.height) {
                     selectedElement = u; dragType = 'unit'; activeSelection = u;
-                    dragOffset.x = mx - u.x; dragOffset.y = my - u.y;
+                    dragOffset.x = pos.x - u.x; dragOffset.y = pos.y - u.y;
                     draw(); return;
                 }
-                if (u.type !== 'reactor' && Math.hypot(u.x - mx, u.y - my) < u.radius + 12) {
+                if (u.type !== 'reactor' && Math.hypot(u.x - pos.x, u.y - pos.y) < u.radius + 12) {
                     selectedElement = u; dragType = 'unit'; activeSelection = u;
-                    dragOffset.x = mx - u.x; dragOffset.y = my - u.y;
+                    dragOffset.x = pos.x - u.x; dragOffset.y = pos.y - u.y;
                     draw(); return;
                 }
             }
@@ -696,19 +769,18 @@
         function handleMove(clientX, clientY) {
             clearTimeout(touchTimer);
             if (!selectedElement) return;
-            const rect = canvas.getBoundingClientRect();
-            const mx = clientX - rect.left; const my = clientY - rect.top;
+            const pos = screenToCanvas(clientX, clientY);
 
             if (dragType === 'start') {
-                selectedElement.sx = mx; selectedElement.sy = my; selectedElement.connectedInputUnit = null;
+                selectedElement.sx = pos.x; selectedElement.sy = pos.y; selectedElement.connectedInputUnit = null;
             } else if (dragType === 'end') {
-                selectedElement.ex = mx; selectedElement.ey = my; selectedElement.connectedOutputUnit = null;
+                selectedElement.ex = pos.x; selectedElement.ey = pos.y; selectedElement.connectedOutputUnit = null;
             } else if (dragType === 'stream_body') {
                 selectedElement.connectedInputUnit = null; selectedElement.connectedOutputUnit = null;
-                selectedElement.sx = mx - streamDragOffset.sx; selectedElement.sy = my - streamDragOffset.sy;
-                selectedElement.ex = mx - streamDragOffset.ex; selectedElement.ey = my - streamDragOffset.ey;
+                selectedElement.sx = pos.x - streamDragOffset.sx; selectedElement.sy = pos.y - streamDragOffset.sy;
+                selectedElement.ex = pos.x - streamDragOffset.ex; selectedElement.ey = pos.y - streamDragOffset.ey;
             } else if (dragType === 'unit') {
-                selectedElement.x = mx - dragOffset.x; selectedElement.y = my - dragOffset.y;
+                selectedElement.x = pos.x - dragOffset.x; selectedElement.y = pos.y - dragOffset.y;
                 streams.forEach(s => {
                     if (s.connectedInputUnit === selectedElement) { 
                         s.sx = selectedElement.type === 'reactor' ? selectedElement.x + selectedElement.width : selectedElement.x; 
@@ -770,6 +842,16 @@
         canvas.addEventListener('touchstart', (e) => { if(e.touches.length > 0) handleStart(e.touches[0].clientX, e.touches[0].clientY, true); }, { passive: true });
         canvas.addEventListener('touchmove', (e) => { if(e.touches.length > 0) handleMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
         canvas.addEventListener('touchend', handleEnd);
+
+        // WHEEL ZOOM
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.1;
+            const direction = e.deltaY > 0 ? -1 : 1;
+            zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel + direction * zoomSpeed));
+            updateZoomDisplay();
+            draw();
+        }, { passive: false });
 
         setTimeout(resizeCanvas, 50);
     </script>
